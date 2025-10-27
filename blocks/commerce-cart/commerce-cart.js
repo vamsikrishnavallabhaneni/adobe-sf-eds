@@ -35,6 +35,18 @@ import '../../scripts/initializers/wishlist.js';
 import { readBlockConfig } from '../../scripts/aem.js';
 import { fetchPlaceholders, rootLink, getProductLink } from '../../scripts/commerce.js';
 
+const DROPDOWN_MAX_QUANTITY = 20;
+const dropdownOptions = Array.from(
+  { length: parseInt(DROPDOWN_MAX_QUANTITY, 10) },
+  (_, i) => {
+    const quantityOption = i + 1;
+    return {
+      value: ${quantityOption},
+      text: ${quantityOption},
+    };
+  }
+);
+
 export default async function decorate(block) {
   // Configuration
   const {
@@ -48,6 +60,8 @@ export default async function decorate(block) {
     'checkout-url': checkoutURL = '',
     'enable-updating-product': enableUpdatingProduct = 'false',
     'undo-remove-item': undo = 'false',
+    'show-discount': showDiscount = 'false', 
+    'show-savings': showSavings = 'false',
   } = readBlockConfig(block);
 
   const placeholders = await fetchPlaceholders();
@@ -182,7 +196,39 @@ export default async function decorate(block) {
       enableUpdateItemQuantity: enableUpdateItemQuantity === 'true',
       enableRemoveItem: enableRemoveItem === 'true',
       undo: undo === 'true',
+      quantityType: 'dropdown',
+      dropdownOptions,
+      showDiscount: showDiscount === 'true',
+      showSavings: showSavings === 'true',
       slots: {
+        ProductAttributes: (ctx) => {
+        // Prepend Product Attributes
+        const ProductAttributes = ctx.item?.productAttributes; // Get attributes from context
+
+        ProductAttributes?.forEach((attr) => {
+          // Check for the specific attribute code (replace 'shipping_notes' if yours is different)
+          if(attr.code === "shipping_notes") {
+            if(attr.selected_options) { // Handle multi-select type attributes
+              const selectedOptions = attr.selected_options
+              .filter((option) => option.label.trim() !== '')
+              .map((option) => option.label)
+              .join(', ');
+
+              if(selectedOptions) {
+                const productAttribute = document.createElement('div');
+                // Display code and value (e.g., "shipping_notes: FINAL SALE...")
+                productAttribute.innerText = `${attr.code}: ${selectedOptions}`;
+                ctx.appendChild(productAttribute); // Add it to the item display
+              }
+            } else if (attr.value) { // Handle simple text attributes
+              const productAttribute = document.createElement('div');
+              productAttribute.innerText = `${attr.code}: ${attr.value}`;
+              ctx.appendChild(productAttribute);
+            }
+          }
+        })
+      },
+
         Thumbnail: (ctx) => {
           const { item, defaultImageProps } = ctx;
           const anchorWrapper = document.createElement('a');
@@ -201,6 +247,29 @@ export default async function decorate(block) {
         },
 
         Footer: (ctx) => {
+          const wrapper = document.createElement('div');
+      wrapper.className = 'cart-item-promotion'; // Add a class for potential styling
+      ctx.appendChild(wrapper); // Add the container to the footer
+
+      // Function to update the promotion text whenever item data changes
+      const updatePromotion = (currentItem) => {
+        wrapper.innerHTML = ''; // Clear previous text
+        currentItem?.discount?.label?.forEach((label) => {
+          const discount = document.createElement('div');
+          discount.style.color = 'var(--color-positive-700, #008000)'; // Use token or fallback color
+          discount.style.fontSize = 'var(--type-details-caption-1-font-size)';
+          discount.innerText = label; // Display the discount rule label
+          wrapper.appendChild(discount);
+        });
+      };
+
+      // Update initially on mount
+      updatePromotion(ctx.item);
+      // Update whenever the item context changes
+      ctx.onChange((next) => {
+        updatePromotion(next.item);
+      });
+
           // Edit Link
           if (ctx.item?.itemType === 'ConfigurableCartItem' && enableUpdatingProduct === 'true') {
             const editLink = document.createElement('div');
